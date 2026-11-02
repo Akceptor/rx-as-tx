@@ -6,31 +6,36 @@
 <title>ELRS Web TX</title>
 <style>
 :root {
-  --bg: #f4f5f7; --panel: #ffffff; --text: #1b1f24; --muted: #6a7380; --line: #dde1e6;
-  --accent: #2f6fe4; --ok: #1f9d55; --warn: #d97706; --bad: #dc2626; --bar: #2f6fe4; --barbg: #e8ecf1;
+  --bg: #eef0f3; --panel: #ffffff; --text: #1b1f24; --muted: #6a7380; --line: #d8dde3;
+  --accent: #2f6fe4; --ok: #1f9d55; --warn: #d97706; --bad: #dc2626; --bar: #2f6fe4; --barbg: #e3e7ec;
+  --stickbg: #ffffff; --stickline: #cfd5dc; --dot: #2f6fe4; --shadow: 0 10px 40px rgba(0,0,0,.18);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0f1216; --panel: #171b21; --text: #e6e9ee; --muted: #8b95a3; --line: #2a3039;
+    --bg: #0c0f13; --panel: #161a20; --text: #e6e9ee; --muted: #8b95a3; --line: #29303a;
     --accent: #5b8ff9; --ok: #34c37a; --warn: #f0a33a; --bad: #f05252; --bar: #5b8ff9; --barbg: #232932;
+    --stickbg: #12161b; --stickline: #2c333d; --dot: #5b8ff9; --shadow: 0 10px 40px rgba(0,0,0,.6);
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0f1216; --panel: #171b21; --text: #e6e9ee; --muted: #8b95a3; --line: #2a3039;
+  --bg: #0c0f13; --panel: #161a20; --text: #e6e9ee; --muted: #8b95a3; --line: #29303a;
   --accent: #5b8ff9; --ok: #34c37a; --warn: #f0a33a; --bad: #f05252; --bar: #5b8ff9; --barbg: #232932;
+  --stickbg: #12161b; --stickline: #2c333d; --dot: #5b8ff9; --shadow: 0 10px 40px rgba(0,0,0,.6);
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
-header h1 { font-size: 16px; margin: 0 12px 0 0; }
-main { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; padding: 14px 16px; }
-section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
-section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 10px; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; flex-direction: column; overflow-x: hidden; }
 button, select, input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 button { cursor: pointer; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button:disabled { opacity: .5; cursor: default; }
-.pill { padding: 2px 8px; border-radius: 99px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
+.muted { color: var(--muted); }
+
+/* top bar */
+.top { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.top .left, .top .right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.top .right { justify-content: flex-end; }
+.pill { padding: 2px 8px; border-radius: 99px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .pill.ok { color: var(--ok); border-color: var(--ok); }
 .pill.warn { color: var(--warn); border-color: var(--warn); }
 .pill.bad { color: var(--bad); border-color: var(--bad); }
@@ -38,8 +43,50 @@ button:disabled { opacity: .5; cursor: default; }
 .seg button { border: 0; border-radius: 0; background: transparent; }
 .seg button.on { background: var(--accent); color: #fff; }
 .seg button.on.live { background: var(--bad); }
+.arm { min-width: 190px; text-align: center; padding: 6px 18px; border-radius: 10px; border: 2px solid var(--line); line-height: 1.15; }
+.arm b { display: block; font-size: 20px; letter-spacing: .08em; }
+.arm small { color: var(--muted); font-size: 11px; }
+.arm.disarmed { border-color: var(--ok); } .arm.disarmed b { color: var(--ok); }
+.arm.armed { border-color: var(--bad); background: var(--bad); } .arm.armed b, .arm.armed small { color: #fff; }
+.arm.pending { border-color: var(--warn); } .arm.pending b { color: var(--warn); }
+
+/* cockpit */
+.cockpit { flex: 1; display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 3fr) minmax(140px, 1fr); gap: 20px; padding: 16px; align-items: start; }
+.camwrap { min-width: 0; }
+.cam { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; max-height: calc(100vh - 120px); width: 100%; margin: 0 auto; }
+.cam video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.cam.cover video { object-fit: cover; }
+.cam.mirror video { transform: scaleX(-1); }
+.camempty[hidden] { display: none; }
+.camempty { position: absolute; inset: 0; display: grid; place-items: center; color: #8b95a3; text-align: center; padding: 16px; cursor: pointer; }
+.osd { position: absolute; inset: 0; pointer-events: none; color: #fff; font: 600 13px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-shadow: 0 1px 2px #000, 0 0 4px #000; }
+.osd span { position: absolute; }
+.osd .tl { top: 10px; left: 12px; } .osd .tr { top: 10px; right: 12px; text-align: right; }
+.osd .bl { bottom: 10px; left: 12px; } .osd .br { bottom: 10px; right: 12px; text-align: right; }
+.stickcol { display: flex; flex-direction: column; align-items: center; gap: 8px; align-self: center; }
+.stick { position: relative; width: 100%; max-width: 240px; aspect-ratio: 1; background: var(--stickbg); border: 1px solid var(--stickline); border-radius: 14px; }
+.stick::before, .stick::after { content: ""; position: absolute; background: var(--stickline); }
+.stick::before { left: 50%; top: 8%; bottom: 8%; width: 1px; }
+.stick::after { top: 50%; left: 8%; right: 8%; height: 1px; }
+.stick .dot { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: var(--dot); box-shadow: 0 0 0 4px color-mix(in srgb, var(--dot) 25%, transparent); left: 50%; top: 50%; z-index: 1; }
+.sticklbl { display: flex; justify-content: space-between; width: 100%; max-width: 240px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.aux { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 10px; }
+.aux span { font-size: 12px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); font-variant-numeric: tabular-nums; }
+.aux span.on { color: var(--accent); border-color: var(--accent); }
+
+/* settings drawer */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(620px, 100vw); background: var(--panel); border-left: 1px solid var(--line); box-shadow: var(--shadow); display: flex; flex-direction: column; z-index: 10; }
+.drawer[hidden] { display: none; }
+.tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); align-items: flex-end; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; padding: 8px 10px; color: var(--muted); }
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.tabs .close { margin-left: auto; font-size: 16px; }
+.tab { overflow: auto; padding: 14px 16px; flex: 1; }
+.tab[hidden] { display: none; }
+.tab h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 16px 0 8px; }
+.tab h2:first-child { margin-top: 0; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
-.muted { color: var(--muted); }
+.hint { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
 table { width: 100%; border-collapse: collapse; }
 td { padding: 3px 4px; vertical-align: middle; }
 .ch td:first-child { width: 34px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -49,6 +96,7 @@ td { padding: 3px 4px; vertical-align: middle; }
 .barwrap .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); opacity: .5; }
 .num { font-variant-numeric: tabular-nums; width: 52px; text-align: right; }
 .learning { outline: 2px solid var(--warn); }
+.ch label { white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
 .buttons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .btn { width: 26px; height: 22px; border-radius: 4px; border: 1px solid var(--line); font-size: 11px; display: grid; place-items: center; color: var(--muted); }
 .btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -56,71 +104,94 @@ fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; pad
 legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
 .param { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 4px 0; border-bottom: 1px dashed var(--line); }
 .param:last-child { border-bottom: 0; }
+.param select { max-width: 60%; }
 .param.dirty span:first-child { color: var(--warn); font-weight: 600; }
 .param.dirty span:first-child::after { content: " •"; }
-.param select { max-width: 60%; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; font-variant-numeric: tabular-nums; }
 .kv div:nth-child(odd) { color: var(--muted); }
 pre { margin: 0; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
-#log { max-height: 220px; overflow: auto; }
+#log { max-height: 300px; overflow: auto; }
 .warnbox { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; display: none; }
-@media (max-width: 480px) {
-  main { grid-template-columns: 1fr; padding: 10px 16px; }
-  .lbl { width: 54px; }
+label.chk { display: inline-flex; gap: 6px; align-items: center; }
+
+@media (max-width: 860px) {
+  .top { grid-template-columns: 1fr; justify-items: center; }
+  .top .left, .top .right { justify-content: center; }
+  .top > *, .cockpit > * { min-width: 0; }
+  .cockpit { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  .cockpit .camwrap { grid-column: 1 / -1; order: -1; }
 }
 </style>
 </head>
 <body>
-<header>
-  <h1>ELRS Web TX</h1>
-  <select id="baud" title="Serial baud">
-    <option>115200</option><option>400000</option><option>420000</option><option>921600</option><option>1870000</option>
-  </select>
-  <button id="connect" class="primary">Connect serial</button>
-  <span id="serialState" class="pill">serial: off</span>
-  <span id="devState" class="pill">module: –</span>
-  <span id="padState" class="pill">gamepad: –</span>
-  <span id="linkState" class="pill">link: –</span>
+<header class="top">
+  <div class="left">
+    <button id="menuBtn" title="Settings (Esc closes)">☰ Settings</button>
+    <span class="seg" id="mode">
+      <button data-m="off">Off</button>
+      <button data-m="safe">Safe</button>
+      <button data-m="live">Live</button>
+    </span>
+  </div>
+  <div id="armBox" class="arm disarmed"><b id="armText">DISARMED</b><small id="armSub">not sending</small></div>
+  <div class="right">
+    <span id="serialState" class="pill">serial: off</span>
+    <span id="devState" class="pill">module: –</span>
+    <span id="padState" class="pill">gamepad: –</span>
+    <span id="linkState" class="pill">link: –</span>
+    <button id="connect" class="primary">Connect serial</button>
+  </div>
 </header>
 
-<main>
-  <section>
-    <h2>Transmit</h2>
+<main class="cockpit">
+  <div class="stickcol">
+    <div class="stick" id="stickL"><div class="dot"></div></div>
+    <div class="sticklbl"><span id="lblYaw">YAW –</span><span id="lblThr">THR –</span></div>
+  </div>
+  <div class="camwrap">
+    <div class="cam" id="camBox">
+      <video id="cam" autoplay muted playsinline></video>
+      <div id="camEmpty" class="camempty">Starting camera…</div>
+      <div class="osd">
+        <span class="tl" id="osdTL"></span><span class="tr" id="osdTR"></span>
+        <span class="bl" id="osdBL"></span><span class="br" id="osdBR"></span>
+      </div>
+    </div>
+    <div class="aux" id="aux"></div>
+  </div>
+  <div class="stickcol">
+    <div class="stick" id="stickR"><div class="dot"></div></div>
+    <div class="sticklbl"><span id="lblRoll">ROLL –</span><span id="lblPitch">PITCH –</span></div>
+  </div>
+</main>
+
+<aside id="drawer" class="drawer" hidden>
+  <nav class="tabs">
+    <button data-tab="tx" class="on">Transmitter</button>
+    <button data-tab="pad">Gamepad</button>
+    <button data-tab="cam">Camera</button>
+    <button data-tab="tel">Telemetry</button>
+    <button class="close" id="closeDrawer" title="Close">✕</button>
+  </nav>
+
+  <div class="tab" data-tab="tx">
     <div id="nosupport" class="warnbox"></div>
+    <h2>Connection</h2>
     <div class="row">
-      <span class="seg" id="mode">
-        <button data-m="off">Off</button>
-        <button data-m="safe">Safe</button>
-        <button data-m="live">Live sticks</button>
-      </span>
-      <label class="muted">rate
+      <label class="muted">baud
+        <select id="baud" title="Serial baud">
+          <option>115200</option><option>400000</option><option>420000</option><option>921600</option><option>1870000</option>
+        </select>
+      </label>
+      <label class="muted">RC rate
         <select id="rate"><option>50</option><option>100</option><option>150</option><option selected>250</option></select> Hz
       </label>
       <span id="txRate" class="muted"></span>
     </div>
-    <div class="muted" style="margin-bottom:8px;font-size:12px">
+    <div class="hint">
       Off: only keepalive pings, no RC frames, so the receiver goes to failsafe. Safe (default on connect): sticks centered, throttle and AUX low (disarmed).
       Live: the gamepad drives the channels. You can only switch to Live with throttle low and ch5 (arm) low. Switches back to Off if the gamepad disconnects, or if the tab is hidden and gamepad data stops updating for 500 ms.
     </div>
-    <table id="chans"></table>
-    <div class="row" style="margin-top:8px">
-      <button id="resetMap">Reset mapping</button>
-      <span class="muted" style="font-size:12px">Learn: click it, then move a stick or flip a switch.</span>
-    </div>
-  </section>
-
-  <section>
-    <h2>Gamepad input</h2>
-    <div class="row">
-      <select id="padSel"><option value="">(press a button on your controller)</option></select>
-    </div>
-    <table id="axes"></table>
-    <div class="buttons" id="btns"></div>
-    <h2 style="margin-top:14px">Last frame sent</h2>
-    <pre id="lastFrame" class="muted">–</pre>
-  </section>
-
-  <section>
     <h2>Module settings</h2>
     <div class="row">
       <button id="reload" disabled>Reload</button>
@@ -129,17 +200,60 @@ pre { margin: 0; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
       <span id="paramState" class="muted"></span>
     </div>
     <div id="params" class="muted">Connect serial to load the module's settings.</div>
-  </section>
+  </div>
 
-  <section>
+  <div class="tab" data-tab="pad" hidden>
+    <h2>Controller</h2>
+    <div class="row">
+      <select id="padSel"><option value="">(press a button on your controller)</option></select>
+    </div>
+    <h2>Channel mapping</h2>
+    <table id="chans"></table>
+    <div class="row" style="margin-top:8px">
+      <button id="resetMap">Reset mapping</button>
+      <span class="hint" style="margin:0">Learn: click it, then move a stick or flip a switch.</span>
+    </div>
+    <h2>Raw input</h2>
+    <table id="axes"></table>
+    <div class="buttons" id="btns"></div>
+  </div>
+
+  <div class="tab" data-tab="cam" hidden>
+    <h2>Camera</h2>
+    <div class="row">
+      <select id="camSel"><option value="">(default camera)</option></select>
+      <button id="camRefresh" title="Refresh device list">↻</button>
+    </div>
+    <div class="row">
+      <label class="muted">resolution
+        <select id="camRes">
+          <option>640x480</option><option selected>1280x720</option><option>1920x1080</option>
+        </select>
+      </label>
+      <label class="muted">fit
+        <select id="camFit"><option value="contain">fit</option><option value="cover">fill</option></select>
+      </label>
+      <label class="chk"><input type="checkbox" id="camMirror"> mirror</label>
+    </div>
+    <div class="row">
+      <button id="camStart" class="primary">Start camera</button>
+      <button id="camStop">Stop</button>
+      <span id="camInfo" class="muted"></span>
+    </div>
+    <div class="hint">USB video receivers and capture cards show up as cameras. Chrome asks for camera permission the first time. The camera starts when the page opens, unless you last stopped it with Stop.</div>
+  </div>
+
+  <div class="tab" data-tab="tel" hidden>
     <h2>Link &amp; telemetry</h2>
     <div class="kv" id="telem"></div>
-    <h2 style="margin-top:14px">Frames received</h2>
+    <h2>Last frame sent</h2>
+    <pre id="lastFrame" class="muted">–</pre>
+    <h2>Frames received</h2>
     <pre id="rxStats" class="muted">–</pre>
-    <h2 style="margin-top:14px">Log</h2>
+    <h2>Log</h2>
     <pre id="log"></pre>
-  </section>
-</main>
+  </div>
+</aside>
 
 <script>
 "use strict";
@@ -315,7 +429,7 @@ function handleFrame(type, p) {
         "Used": `${(p[4] << 16) | (p[5] << 8) | p[6]} mAh`, "Remaining": `${p[7]} %`,
       });
       break;
-    case 0x21: telem["Flight mode"] = cstr(p, 0)[0]; break;
+    case 0x21: telem["Flight mode"] = cstr(p, 0)[0]; flightModeAt = performance.now(); break;
     case 0x1E:
       telem["Attitude"] = ["P", "R", "Y"].map((k, i) => `${k} ${(sbe16(p, i * 2) / 10000 * 180 / Math.PI).toFixed(1)}°`).join("  ");
       break;
@@ -598,7 +712,7 @@ function tick() {
   paramWatchdog(now);
   if (now - lastSecond >= 1000) { sentRate = sentThisSec; sentThisSec = 0; lastSecond = now; }
 }
-let lastFrameBytes = null, lastKeepalive = 0;
+let lastFrameBytes = null, lastKeepalive = 0, flightModeAt = 0;
 let ticker = null;
 function startTicker() {
   const ms = Math.round(1000 / +$("#rate").value);
@@ -716,9 +830,160 @@ function draw() {
   if (!lastLinkStats) setPill("#linkState", "link: no stats", "");
   else if (linkAge > 1500) setPill("#linkState", "link: lost", "bad");
   else setPill("#linkState", `link: LQ ${telem["Up LQ"]}`, "ok");
-  $("#telem").innerHTML = Object.entries(telem).map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join("") || '<div>–</div><div class="muted">no telemetry yet</div>';
-  $("#rxStats").textContent = Object.entries(rxCount).map(([t, n]) => `${TYPE_NAMES[t] || "0x" + (+t).toString(16)}: ${n}`).join("\n") + (crcErr ? `\nCRC errors: ${crcErr}` : "") || "–";
+  drawCockpit(shown, linkAge);
+  if (activeTab === "tel" && !$("#drawer").hidden) {
+    const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    $("#telem").innerHTML = Object.entries(telem).map(([k, v]) => `<div>${esc(k)}</div><div>${esc(v)}</div>`).join("") || '<div>–</div><div class="muted">no telemetry yet</div>';
+    $("#rxStats").textContent = Object.entries(rxCount).map(([t, n]) => `${TYPE_NAMES[t] || "0x" + (+t).toString(16)}: ${n}`).join("\n") + (crcErr ? `\nCRC errors: ${crcErr}` : "") || "–";
+  }
   requestAnimationFrame(draw);
+}
+
+// ---------- cockpit ----------
+const ARM_ON = 1300; // ≈1700µs; Betaflight's usual arm range starts around there
+function placeDot(stick, x, y) {
+  const d = stick.firstElementChild;
+  const fx = (x - MIN) / (MAX - MIN), fy = 1 - (y - MIN) / (MAX - MIN);
+  d.style.left = (Math.max(0, Math.min(1, fx)) * 100) + "%";
+  d.style.top = (Math.max(0, Math.min(1, fy)) * 100) + "%";
+}
+let auxEls = [];
+function drawCockpit(c, linkAge) {
+  // Mode 2: left = throttle (ch3) / yaw (ch4), right = pitch (ch2) / roll (ch1)
+  placeDot($("#stickL"), c[3], c[2]);
+  placeDot($("#stickR"), c[0], c[1]);
+  $("#lblYaw").textContent = `YAW ${toUs(c[3])}`;
+  $("#lblThr").textContent = `THR ${toUs(c[2])}`;
+  $("#lblRoll").textContent = `ROLL ${toUs(c[0])}`;
+  $("#lblPitch").textContent = `PITCH ${toUs(c[1])}`;
+
+  if (!auxEls.length) {
+    const box = $("#aux");
+    for (let i = 4; i < 8; i++) { const s = document.createElement("span"); box.append(s); auxEls.push(s); }
+  }
+  auxEls.forEach((s, k) => {
+    const i = k + 4, v = c[i];
+    const pos = v < 700 ? "low" : v > 1300 ? "high" : "mid";
+    s.textContent = `${LABELS[i] ? LABELS[i].toUpperCase() : "AUX" + (i - 3)} ${pos}`;
+    s.classList.toggle("on", pos !== "low");
+  });
+
+  // Betaflight's CRSF flight-mode string ends in "*" while disarmed.
+  const fm = telem["Flight mode"], fmFresh = fm !== undefined && performance.now() - flightModeAt < 2000;
+  const sw = c[4] >= ARM_ON;
+  let cls, text, sub;
+  if (fmFresh) {
+    const armed = !fm.endsWith("*");
+    cls = armed ? "armed" : sw ? "pending" : "disarmed";
+    text = armed ? "ARMED" : "DISARMED";
+    sub = `FC: ${fm.replace(/\*$/, "")}${!armed && sw ? " · arm blocked?" : ""}`;
+  } else if (mode !== "live") {
+    cls = "disarmed"; text = "DISARMED"; sub = mode === "off" ? "not sending" : "safe output";
+  } else {
+    cls = sw ? "pending" : "disarmed"; text = sw ? "ARM SWITCH ON" : "DISARMED"; sub = "no FC telemetry";
+  }
+  const box = $("#armBox");
+  box.className = "arm " + cls;
+  $("#armText").textContent = text;
+  $("#armSub").textContent = sub;
+
+  const fresh = lastLinkStats && linkAge < 1500;
+  $("#osdTL").textContent = fresh ? `LQ ${telem["Up LQ"]}  ${telem["Up RSSI 1"]}` : (lastLinkStats ? "NO LINK" : "");
+  $("#osdTR").textContent = telem["Battery"] ? `${telem["Battery"]}${telem["Current"] ? "  " + telem["Current"] : ""}` : "";
+  $("#osdBL").textContent = fmFresh ? fm : "";
+  $("#osdBR").textContent = fresh ? telem["TX power"] : "";
+}
+
+// ---------- drawer ----------
+const PREF_KEY = "elrs-web-prefs-v1";
+let prefs = {};
+try { prefs = JSON.parse(localStorage.getItem(PREF_KEY)) || {}; } catch (e) {}
+const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) {} };
+let activeTab = prefs.tab || "tx";
+function showTab(t) {
+  activeTab = t; prefs.tab = t; savePrefs();
+  document.querySelectorAll(".tabs button[data-tab]").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  document.querySelectorAll(".tab").forEach(p => p.hidden = p.dataset.tab !== t);
+}
+function toggleDrawer(open) {
+  const d = $("#drawer");
+  d.hidden = open === undefined ? !d.hidden : !open;
+}
+document.querySelectorAll(".tabs button[data-tab]").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+$("#menuBtn").onclick = () => toggleDrawer();
+$("#closeDrawer").onclick = () => toggleDrawer(false);
+document.addEventListener("keydown", e => { if (e.key === "Escape") toggleDrawer(false); });
+showTab(activeTab);
+
+// ---------- camera ----------
+let camStream = null;
+async function listCams() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  const sel = $("#camSel");
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  sel.innerHTML = "";
+  sel.add(new Option("(default camera)", ""));
+  devs.forEach((d, i) => sel.add(new Option(d.label || `Camera ${i + 1}`, d.deviceId, false, d.deviceId === prefs.camId)));
+}
+function applyCamView() {
+  $("#camBox").classList.toggle("cover", prefs.camFit === "cover");
+  $("#camBox").classList.toggle("mirror", !!prefs.camMirror);
+}
+async function startCam() {
+  stopCam(false);
+  const [w, h] = $("#camRes").value.split("x").map(Number);
+  const id = $("#camSel").value;
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: id ? { exact: id } : undefined, width: { ideal: w }, height: { ideal: h } }, audio: false,
+    });
+  } catch (e) {
+    $("#camEmpty").hidden = false;
+    $("#camEmpty").innerHTML = "";
+    $("#camEmpty").append(`Camera error: ${e.name}: ${e.message}`, document.createElement("br"), "click to retry");
+    log("Camera: " + e.message);
+    return;
+  }
+  const v = $("#cam");
+  v.srcObject = camStream;
+  $("#camEmpty").hidden = true;
+  Object.assign(prefs, { camId: id, camRes: $("#camRes").value, camAuto: true });
+  savePrefs();
+  v.onloadedmetadata = () => {
+    const box = $("#camBox");
+    if (v.videoWidth && v.videoHeight) box.style.aspectRatio = `${v.videoWidth} / ${v.videoHeight}`;
+    $("#camInfo").textContent = `${camStream?.getVideoTracks()[0]?.label || "camera"} · ${v.videoWidth}×${v.videoHeight}`;
+  };
+  const label = camStream.getVideoTracks()[0]?.label || "camera";
+  log("Camera: " + label);
+  listCams();
+}
+function stopCam(userAction = true) {
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  camStream = null;
+  $("#cam").srcObject = null;
+  $("#camEmpty").hidden = false;
+  $("#camEmpty").innerHTML = "Camera off<br>click to start";
+  $("#camInfo").textContent = "";
+  if (userAction) { prefs.camAuto = false; savePrefs(); }
+}
+$("#camStart").onclick = startCam;
+$("#camStop").onclick = () => stopCam();
+$("#camRefresh").onclick = listCams;
+$("#camSel").onchange = () => { if (camStream) startCam(); };
+$("#camRes").onchange = () => { if (camStream) startCam(); };
+$("#camFit").onchange = e => { prefs.camFit = e.target.value; savePrefs(); applyCamView(); };
+$("#camMirror").onchange = e => { prefs.camMirror = e.target.checked; savePrefs(); applyCamView(); };
+if (navigator.mediaDevices) {
+  navigator.mediaDevices.addEventListener?.("devicechange", listCams);
+  if (prefs.camRes) $("#camRes").value = prefs.camRes;
+  $("#camFit").value = prefs.camFit || "contain";
+  $("#camMirror").checked = !!prefs.camMirror;
+  applyCamView();
+  $("#camEmpty").onclick = startCam;
+  listCams().then(() => { if (prefs.camAuto !== false) startCam(); else stopCam(false); });
+} else {
+  $("#camEmpty").textContent = "Camera not available in this browser context";
 }
 
 // ---------- init ----------
