@@ -54,8 +54,9 @@ button:disabled { opacity: .5; cursor: default; }
 .cockpit { flex: 1; display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 3fr) minmax(140px, 1fr); gap: 20px; padding: 16px; align-items: start; }
 .camwrap { min-width: 0; }
 .cam { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; max-height: calc(100vh - 120px); width: 100%; margin: 0 auto; }
-.cam video { width: 100%; height: 100%; object-fit: contain; display: block; }
-.cam.cover video { object-fit: cover; }
+.cam video, .cam canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
+.cam canvas { position: absolute; inset: 0; pointer-events: none; }
+.cam.cover video, .cam.cover canvas { object-fit: cover; }
 .cam.mirror video { transform: scaleX(-1); }
 .camempty[hidden] { display: none; }
 .camempty { position: absolute; inset: 0; display: grid; place-items: center; color: #8b95a3; text-align: center; padding: 16px; cursor: pointer; }
@@ -151,6 +152,7 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; }
   <div class="camwrap">
     <div class="cam" id="camBox">
       <video id="cam" autoplay muted playsinline></video>
+      <canvas id="personOverlay" aria-hidden="true"></canvas>
       <div id="camEmpty" class="camempty">Starting camera…</div>
       <div class="osd">
         <span class="tl" id="osdTL"></span><span class="tr" id="osdTR"></span>
@@ -251,7 +253,12 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; }
       <button id="camStop">Stop</button>
       <span id="camInfo" class="muted"></span>
     </div>
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="detectPeople"> Detect people</label>
+      <span id="personStatus" class="muted" role="status">off</span>
+    </div>
     <div class="hint">USB video receivers and capture cards show up as cameras. Chrome asks for camera permission the first time. The camera starts when the page opens, unless you last stopped it with Stop.</div>
+    <div class="hint">Person detection runs in this browser. Open the page from http://localhost (for example, <code>python3 -m http.server</code>), then enable it. The model needs an internet connection on first use.</div>
   </div>
 
   <div class="tab" data-tab="tel" hidden>
@@ -267,6 +274,7 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; }
 </aside>
 
 <script src="channel-order.js"></script>
+<script src="person-detection.js"></script>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -974,6 +982,82 @@ showTab(activeTab);
 
 // ---------- camera ----------
 let camStream = null;
+let personWorker = null, personReady = false, personBusy = false, personTimer = null, personRun = 0;
+const personCanvas = $("#personOverlay");
+const personCtx = personCanvas.getContext("2d");
+const sampleCanvas = document.createElement("canvas");
+const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+function clearPeople() {
+  personRun++;
+  clearTimeout(personTimer);
+  personCtx.clearRect(0, 0, personCanvas.width, personCanvas.height);
+}
+function personError(message) {
+  clearPeople();
+  if (personWorker) personWorker.terminate();
+  personWorker = null; personReady = false; personBusy = false;
+  $("#personStatus").textContent = `Detection unavailable: ${message}`;
+}
+function captureForDetection() {
+  if (!personReady || personBusy || !camStream || !$("#detectPeople").checked) return;
+  const video = $("#cam");
+  if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+    personTimer = setTimeout(captureForDetection, 250);
+    return;
+  }
+  try {
+    const width = Math.min(320, video.videoWidth);
+    const height = Math.max(1, Math.round(video.videoHeight * width / video.videoWidth));
+    sampleCanvas.width = width; sampleCanvas.height = height;
+    sampleCtx.drawImage(video, 0, 0, width, height);
+    const image = sampleCtx.getImageData(0, 0, width, height);
+    personWorker.postMessage({ type: "frame", image, run: personRun }, [image.data.buffer]);
+    personBusy = true;
+  } catch (e) { personError(e.message); }
+}
+function schedulePersonCapture(delay = 0) {
+  if (personReady && !personBusy && camStream && $("#detectPeople").checked) {
+    clearTimeout(personTimer);
+    personTimer = setTimeout(captureForDetection, delay);
+  }
+}
+function startPersonDetection() {
+  clearPeople();
+  if (!$("#detectPeople").checked) { $("#personStatus").textContent = "off"; return; }
+  if (!camStream) { $("#personStatus").textContent = "waiting for camera"; return; }
+  if (personReady) { $("#personStatus").textContent = "searching…"; schedulePersonCapture(); return; }
+  $("#personStatus").textContent = "loading model…";
+  if (personWorker) return;
+  try {
+    personWorker = new Worker("person-worker.js");
+    personWorker.onmessage = event => {
+      const data = event.data;
+      if (data.type === "error") { personError(data.message); return; }
+      if (data.type === "ready") {
+        personReady = true;
+        if (camStream && $("#detectPeople").checked) {
+          $("#personStatus").textContent = "searching…";
+          schedulePersonCapture();
+        }
+      } else if (data.type === "result") {
+        personBusy = false;
+        if (data.run === personRun && camStream && $("#detectPeople").checked) {
+          const video = $("#cam");
+          personCanvas.width = video.videoWidth; personCanvas.height = video.videoHeight;
+          const predictions = scalePeople(data.predictions, video.videoWidth / data.width, video.videoHeight / data.height);
+          const count = drawPeople(personCtx, predictions, !!prefs.camMirror);
+          $("#personStatus").textContent = `${count} ${count === 1 ? "person" : "people"}`;
+        }
+        schedulePersonCapture(250);
+      }
+    };
+    personWorker.onerror = event => personError(event.message || "worker failed");
+    personWorker.postMessage({ type: "init" });
+  } catch (e) {
+    personError(e.message);
+  }
+}
+$("#detectPeople").onchange = startPersonDetection;
 async function listCams() {
   if (!navigator.mediaDevices?.enumerateDevices) return;
   const sel = $("#camSel");
@@ -1014,8 +1098,11 @@ async function startCam() {
   const label = camStream.getVideoTracks()[0]?.label || "camera";
   log("Camera: " + label);
   listCams();
+  startPersonDetection();
 }
 function stopCam(userAction = true) {
+  clearPeople();
+  $("#personStatus").textContent = $("#detectPeople").checked ? "waiting for camera" : "off";
   if (camStream) camStream.getTracks().forEach(t => t.stop());
   camStream = null;
   $("#cam").srcObject = null;
