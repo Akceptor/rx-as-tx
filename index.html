@@ -223,7 +223,9 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; }
       <button id="presetExport">Export</button>
       <button id="presetImport">Import</button>
       <input type="file" id="presetFile" accept=".json,application/json" hidden>
+      <span id="orderState" class="muted">Output: AETR</span>
     </div>
+    <div class="hint">AETR and RETA are built-in channel orders. Match the order configured on your flight controller before using Live output.</div>
     <h2>Raw input</h2>
     <table id="axes"></table>
     <div class="buttons" id="btns"></div>
@@ -271,6 +273,7 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; }
   </div>
 </aside>
 
+<script src="channel-order.js"></script>
 <script src="person-detection.js"></script>
 <script>
 "use strict";
@@ -278,14 +281,11 @@ const $ = s => document.querySelector(s);
 const MIN = 172, MID = 992, MAX = 1811;
 const ORIGIN = 0xEA;
 const NCH = 16;
-const LABELS = ["Roll", "Pitch", "Throttle", "Yaw", "Arm", "Mode"];
-const DEFAULT_MAP = () => {
-  const m = Array.from({ length: NCH }, () => ({ src: "n", inv: false }));
-  [["a0"], ["a1"], ["a2"], ["a3"], ["a5"], ["a6"]].forEach(([s], i) => m[i].src = s);
-  return m;
-};
+const DEFAULT_MAP = () => defaultChannelMap(channelOrder);
 const STORE_KEY = "elrs-web-map-v1";
 const PRESET_KEY = "elrs-web-presets-v1";
+const ORDER_KEY = "elrs-web-order-v1";
+const ACTIVE_PRESET_KEY = "elrs-web-active-preset-v1";
 
 const log = (msg) => {
   const el = $("#log");
@@ -332,7 +332,9 @@ function cstr(d, i) {
 // ---------- state ----------
 let port = null, writer = null, reader = null, inflight = 0;
 let mode = "off";
+let channelOrder = loadChannelOrder();
 let map = loadMap();
+let activePreset = loadActivePreset();
 let padIndex = null, pad = null, padStale = 0, lastPadTs = 0;
 let learnCh = -1, learnBase = null;
 let channels = new Array(NCH).fill(MID);
@@ -353,6 +355,28 @@ function loadMap() {
   return DEFAULT_MAP();
 }
 function saveMap() { try { localStorage.setItem(STORE_KEY, JSON.stringify(map)); } catch (e) {} }
+function loadChannelOrder() {
+  try { const order = localStorage.getItem(ORDER_KEY); if (validChannelOrder(order)) return order; } catch (e) {}
+  return "AETR";
+}
+function saveChannelOrder() { try { localStorage.setItem(ORDER_KEY, channelOrder); } catch (e) {} }
+function loadActivePreset() {
+  try { return resolveActivePreset(localStorage.getItem(ACTIVE_PRESET_KEY), loadPresets()); } catch (e) { return ""; }
+}
+function saveActivePreset() { try { localStorage.setItem(ACTIVE_PRESET_KEY, activePreset); } catch (e) {} }
+function markMappingCustomized() {
+  activePreset = "";
+  saveActivePreset();
+  refreshPresets("");
+}
+function applyPreset(order, newMap, selected) {
+  channelOrder = order;
+  map = newMap.map(c => ({ src: c.src, inv: !!c.inv }));
+  activePreset = selected;
+  saveChannelOrder(); saveMap(); saveActivePreset(); buildChannelTable(); refreshPresets(selected);
+  $("#orderState").textContent = `Output: ${channelOrder}`;
+  log(`Preset loaded: ${selected.startsWith("builtin:") ? order : selected}`);
+}
 function loadPresets() {
   try {
     const p = JSON.parse(localStorage.getItem(PRESET_KEY));
@@ -362,11 +386,14 @@ function loadPresets() {
 }
 function savePresets(p) { try { localStorage.setItem(PRESET_KEY, JSON.stringify(p)); } catch (e) {} }
 const validMap = m => Array.isArray(m) && m.length === NCH && m.every(c => c && typeof c.src === "string" && (c.inv === undefined || typeof c.inv === "boolean" || c.inv === 0 || c.inv === 1));
-function refreshPresets(sel = "") {
+const validPreset = p => p && validMap(p.map) && (p.order === undefined || validChannelOrder(p.order));
+function refreshPresets(sel = activePreset) {
   const el = $("#presetSel");
   el.innerHTML = '<option value="">(presets)</option>';
+  for (const order of ["AETR", "RETA"]) el.add(new Option(`${order} (built-in)`, `builtin:${order}`));
   for (const n of Object.keys(loadPresets())) el.add(new Option(n, n));
-  el.value = [...el.options].some(o => o.value === sel) ? sel : "";
+  el.value = resolveActivePreset(sel, loadPresets());
+  $("#presetDel").disabled = el.value.startsWith("builtin:");
 }
 
 // ---------- serial ----------
@@ -682,7 +709,7 @@ function srcValue(m) {
   v = Math.max(-1, Math.min(1, v));
   return Math.round(v >= 0 ? MID + v * (MAX - MID) : MID + v * (MID - MIN));
 }
-const restValue = i => (i === 2 || i >= 4) ? MIN : MID;
+const restValue = i => (i === channelIndex(channelOrder, "T") || i >= 4) ? MIN : MID;
 function computeChannels() {
   for (let i = 0; i < NCH; i++) {
     if (mode === "live") { const v = srcValue(map[i]); channels[i] = v ?? restValue(i); }
@@ -699,7 +726,7 @@ function doLearn() {
   pad.axes.forEach((v, i) => { if (!src && Math.abs(v - learnBase.axes[i]) > 0.6) src = "a" + i; });
   pad.buttons.forEach((b, i) => { if (!src && Math.abs(b.value - learnBase.buttons[i]) > 0.5) src = "b" + i; });
   if (src) {
-    map[learnCh].src = src; map[learnCh].inv = false; saveMap();
+    map[learnCh].src = src; map[learnCh].inv = false; saveMap(); markMappingCustomized();
     log(`ch${learnCh + 1} ← ${src}`);
     learnCh = -1; learnBase = null;
     buildChannelTable();
@@ -710,8 +737,9 @@ function setMode(m) {
   if (m === "live") {
     if (!pad) { alert("No gamepad. Press a button on your controller first."); return; }
     const c = liveChannelsPreview();
-    if (c[2] > 300 || c[4] > 900) {
-      alert(`Live refused: throttle (ch3 = ${toUs(c[2])}µs) and arm (ch5 = ${toUs(c[4])}µs) must both be low.`);
+    const throttleIndex = channelIndex(channelOrder, "T");
+    if (c[throttleIndex] > 300 || c[4] > 900) {
+      alert(`Live refused: throttle (ch${throttleIndex + 1} = ${toUs(c[throttleIndex])}µs) and arm (ch5 = ${toUs(c[4])}µs) must both be low.`);
       return;
     }
   }
@@ -782,16 +810,16 @@ function buildChannelTable() {
   for (let i = 0; i < NCH; i++) {
     const tr = t.insertRow(); tr.className = "ch";
     tr.insertCell().textContent = "ch" + (i + 1);
-    const l = tr.insertCell(); l.className = "lbl"; l.textContent = LABELS[i] || "AUX" + (i - 3);
+    const l = tr.insertCell(); l.className = "lbl"; l.textContent = channelLabel(channelOrder, i);
     const bc = tr.insertCell(); bc.style.width = "100%";
     bc.innerHTML = '<div class="barwrap"><div class="mid"></div><div class="bar"></div></div>';
     const nc = tr.insertCell(); nc.className = "num";
     const sc = tr.insertCell(); const sel = document.createElement("select"); srcOptions(sel, map[i].src);
-    sel.onchange = () => { map[i].src = sel.value; saveMap(); };
+    sel.onchange = () => { map[i].src = sel.value; saveMap(); markMappingCustomized(); };
     sc.append(sel);
     const ic = tr.insertCell(); const inv = document.createElement("label");
     inv.innerHTML = '<input type="checkbox"> inv'; inv.firstChild.checked = map[i].inv;
-    inv.firstChild.onchange = e => { map[i].inv = e.target.checked; saveMap(); };
+    inv.firstChild.onchange = e => { map[i].inv = e.target.checked; saveMap(); markMappingCustomized(); };
     ic.append(inv);
     const lc = tr.insertCell(); const lb = document.createElement("button"); lb.textContent = "Learn";
     lb.onclick = () => {
@@ -882,13 +910,17 @@ function placeDot(stick, x, y) {
 }
 let auxEls = [];
 function drawCockpit(c, linkAge) {
-  // Mode 2: left = throttle (ch3) / yaw (ch4), right = pitch (ch2) / roll (ch1)
-  placeDot($("#stickL"), c[3], c[2]);
-  placeDot($("#stickR"), c[0], c[1]);
-  $("#lblYaw").textContent = `YAW ${toUs(c[3])}`;
-  $("#lblThr").textContent = `THR ${toUs(c[2])}`;
-  $("#lblRoll").textContent = `ROLL ${toUs(c[0])}`;
-  $("#lblPitch").textContent = `PITCH ${toUs(c[1])}`;
+  // Mode 2 stick positions use functions, regardless of output channel order.
+  const yaw = c[channelIndex(channelOrder, "R")];
+  const throttle = c[channelIndex(channelOrder, "T")];
+  const roll = c[channelIndex(channelOrder, "A")];
+  const pitch = c[channelIndex(channelOrder, "E")];
+  placeDot($("#stickL"), yaw, throttle);
+  placeDot($("#stickR"), roll, pitch);
+  $("#lblYaw").textContent = `YAW ${toUs(yaw)}`;
+  $("#lblThr").textContent = `THR ${toUs(throttle)}`;
+  $("#lblRoll").textContent = `ROLL ${toUs(roll)}`;
+  $("#lblPitch").textContent = `PITCH ${toUs(pitch)}`;
 
   if (!auxEls.length) {
     const box = $("#aux");
@@ -897,7 +929,7 @@ function drawCockpit(c, linkAge) {
   auxEls.forEach((s, k) => {
     const i = k + 4, v = c[i];
     const pos = v < 700 ? "low" : v > 1300 ? "high" : "mid";
-    s.textContent = `${LABELS[i] ? LABELS[i].toUpperCase() : "AUX" + (i - 3)} ${pos}`;
+    s.textContent = `${channelLabel(channelOrder, i).toUpperCase()} ${pos}`;
     s.classList.toggle("on", pos !== "low");
   });
 
@@ -1111,28 +1143,41 @@ $("#connect").onclick = connect;
 $("#reload").onclick = () => { reloadParams(); };
 $("#save").onclick = saveStaged;
 $("#discard").onclick = () => { staged = {}; updateSaveButtons(); renderParams(); };
-$("#resetMap").onclick = () => { map = DEFAULT_MAP(); saveMap(); buildChannelTable(); };
+$("#resetMap").onclick = () => {
+  if (mode === "live") { alert("Switch to Off before resetting channel mapping"); return; }
+  map = DEFAULT_MAP(); saveMap(); markMappingCustomized(); buildChannelTable();
+};
+$("#presetSel").onchange = e => { $("#presetDel").disabled = e.target.value.startsWith("builtin:"); };
 $("#presetSave").onclick = () => {
   const sel = $("#presetSel").value, presets = loadPresets();
-  const name = (prompt("Preset name", sel || (pad?.id || "").slice(0, 30)) || "").trim();
+  const name = (prompt("Preset name", sel.startsWith("builtin:") ? "" : sel || (pad?.id || "").slice(0, 30)) || "").trim();
   if (!name) return;
+  if (name.startsWith("builtin:") || name === "AETR" || name === "RETA") { alert("That name is reserved for a built-in preset"); return; }
   if (presets[name] && !confirm(`Overwrite preset "${name}"?`)) return;
-  presets[name] = { map: JSON.parse(JSON.stringify(map)), padId: pad?.id || null, saved: new Date().toISOString() };
-  savePresets(presets); refreshPresets(name); log(`Preset saved: ${name}`);
+  presets[name] = { map: JSON.parse(JSON.stringify(map)), order: channelOrder, padId: pad?.id || null, saved: new Date().toISOString() };
+  savePresets(presets); activePreset = name; saveActivePreset(); refreshPresets(name); log(`Preset saved: ${name}`);
 };
 $("#presetLoad").onclick = () => {
-  const name = $("#presetSel").value, p = loadPresets()[name];
-  if (!p) return;
+  const name = $("#presetSel").value;
+  if (!name) return;
   if (mode === "live") { alert("Switch to Off before loading a preset"); return; }
-  if (!validMap(p.map)) { alert(`Preset "${name}" is invalid`); return; }
+  if (name.startsWith("builtin:")) {
+    const order = name.slice(8);
+    if (validChannelOrder(order)) applyPreset(order, defaultChannelMap(order), name);
+    return;
+  }
+  const p = loadPresets()[name];
+  if (!p) return;
+  if (!validPreset(p)) { alert(`Preset "${name}" is invalid`); return; }
   if (p.padId && pad && pad.id !== p.padId) log(`Warning: preset made for ${p.padId}`);
-  map = p.map.map(c => ({ src: c.src, inv: !!c.inv }));
-  saveMap(); buildChannelTable(); log(`Preset loaded: ${name}`);
+  applyPreset(p.order || "AETR", p.map, name);
 };
 $("#presetDel").onclick = () => {
   const name = $("#presetSel").value, presets = loadPresets();
   if (!presets[name] || !confirm(`Delete preset "${name}"?`)) return;
-  delete presets[name]; savePresets(presets); refreshPresets(); log(`Preset deleted: ${name}`);
+  delete presets[name]; savePresets(presets);
+  if (activePreset === name) { activePreset = ""; saveActivePreset(); }
+  refreshPresets(); log(`Preset deleted: ${name}`);
 };
 $("#presetExport").onclick = () => {
   const blob = new Blob([JSON.stringify({ type: "rx-as-tx-presets", version: 1, presets: loadPresets() }, null, 2)], { type: "application/json" });
@@ -1151,12 +1196,13 @@ $("#presetFile").onchange = async (e) => {
     if (!inc || typeof inc !== "object" || Array.isArray(inc)) throw new Error("bad format");
     const presets = loadPresets(); let n = 0;
     for (const [name, p] of Object.entries(inc)) {
-      if (!p || !validMap(p.map)) { log(`Import: skipped invalid preset "${name}"`); continue; }
+      if (name.startsWith("builtin:") || name === "AETR" || name === "RETA" || !validPreset(p)) { log(`Import: skipped invalid preset "${name}"`); continue; }
       if (presets[name] && !confirm(`Overwrite preset "${name}"?`)) continue;
-      presets[name] = { map: p.map.map(c => ({ src: c.src, inv: !!c.inv })), padId: typeof p.padId === "string" ? p.padId : null, saved: typeof p.saved === "string" ? p.saved : new Date().toISOString() };
+      if (activePreset === name) { activePreset = ""; saveActivePreset(); }
+      presets[name] = { map: p.map.map(c => ({ src: c.src, inv: !!c.inv })), order: p.order || "AETR", padId: typeof p.padId === "string" ? p.padId : null, saved: typeof p.saved === "string" ? p.saved : new Date().toISOString() };
       n++;
     }
-    savePresets(presets); refreshPresets($("#presetSel").value); log(`Imported ${n} preset(s)`);
+    savePresets(presets); refreshPresets(activePreset); log(`Imported ${n} preset(s)`);
   } catch (err) { log(`Import failed: ${err.message}`); }
   e.target.value = "";
 };
@@ -1164,6 +1210,7 @@ document.querySelectorAll("#mode button").forEach(b => b.onclick = () => setMode
 setMode("off");
 buildChannelTable();
 refreshPresets();
+$("#orderState").textContent = `Output: ${channelOrder}`;
 startTicker();
 requestAnimationFrame(draw);
 </script>
