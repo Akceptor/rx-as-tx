@@ -213,6 +213,15 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; }
       <button id="resetMap">Reset mapping</button>
       <span class="hint" style="margin:0">Learn: click it, then move a stick or flip a switch.</span>
     </div>
+    <div class="row" style="margin-top:8px">
+      <select id="presetSel"><option value="">(presets)</option></select>
+      <button id="presetSave">Save as…</button>
+      <button id="presetLoad">Load</button>
+      <button id="presetDel">Delete</button>
+      <button id="presetExport">Export</button>
+      <button id="presetImport">Import</button>
+      <input type="file" id="presetFile" accept=".json,application/json" hidden>
+    </div>
     <h2>Raw input</h2>
     <table id="axes"></table>
     <div class="buttons" id="btns"></div>
@@ -268,6 +277,7 @@ const DEFAULT_MAP = () => {
   return m;
 };
 const STORE_KEY = "elrs-web-map-v1";
+const PRESET_KEY = "elrs-web-presets-v1";
 
 const log = (msg) => {
   const el = $("#log");
@@ -335,6 +345,21 @@ function loadMap() {
   return DEFAULT_MAP();
 }
 function saveMap() { try { localStorage.setItem(STORE_KEY, JSON.stringify(map)); } catch (e) {} }
+function loadPresets() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PRESET_KEY));
+    if (p && typeof p === "object" && !Array.isArray(p)) return p;
+  } catch (e) {}
+  return {};
+}
+function savePresets(p) { try { localStorage.setItem(PRESET_KEY, JSON.stringify(p)); } catch (e) {} }
+const validMap = m => Array.isArray(m) && m.length === NCH && m.every(c => c && typeof c.src === "string" && (c.inv === undefined || typeof c.inv === "boolean" || c.inv === 0 || c.inv === 1));
+function refreshPresets(sel = "") {
+  const el = $("#presetSel");
+  el.innerHTML = '<option value="">(presets)</option>';
+  for (const n of Object.keys(loadPresets())) el.add(new Option(n, n));
+  el.value = [...el.options].some(o => o.value === sel) ? sel : "";
+}
 
 // ---------- serial ----------
 async function connect() {
@@ -1000,9 +1025,58 @@ $("#reload").onclick = () => { reloadParams(); };
 $("#save").onclick = saveStaged;
 $("#discard").onclick = () => { staged = {}; updateSaveButtons(); renderParams(); };
 $("#resetMap").onclick = () => { map = DEFAULT_MAP(); saveMap(); buildChannelTable(); };
+$("#presetSave").onclick = () => {
+  const sel = $("#presetSel").value, presets = loadPresets();
+  const name = (prompt("Preset name", sel || (pad?.id || "").slice(0, 30)) || "").trim();
+  if (!name) return;
+  if (presets[name] && !confirm(`Overwrite preset "${name}"?`)) return;
+  presets[name] = { map: JSON.parse(JSON.stringify(map)), padId: pad?.id || null, saved: new Date().toISOString() };
+  savePresets(presets); refreshPresets(name); log(`Preset saved: ${name}`);
+};
+$("#presetLoad").onclick = () => {
+  const name = $("#presetSel").value, p = loadPresets()[name];
+  if (!p) return;
+  if (mode === "live") { alert("Switch to Off before loading a preset"); return; }
+  if (!validMap(p.map)) { alert(`Preset "${name}" is invalid`); return; }
+  if (p.padId && pad && pad.id !== p.padId) log(`Warning: preset made for ${p.padId}`);
+  map = p.map.map(c => ({ src: c.src, inv: !!c.inv }));
+  saveMap(); buildChannelTable(); log(`Preset loaded: ${name}`);
+};
+$("#presetDel").onclick = () => {
+  const name = $("#presetSel").value, presets = loadPresets();
+  if (!presets[name] || !confirm(`Delete preset "${name}"?`)) return;
+  delete presets[name]; savePresets(presets); refreshPresets(); log(`Preset deleted: ${name}`);
+};
+$("#presetExport").onclick = () => {
+  const blob = new Blob([JSON.stringify({ type: "rx-as-tx-presets", version: 1, presets: loadPresets() }, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "gamepad-presets.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+$("#presetImport").onclick = () => $("#presetFile").click();
+$("#presetFile").onchange = async (e) => {
+  const f = e.target.files[0];
+  try {
+    if (!f) return;
+    const data = JSON.parse(await f.text());
+    const inc = data && data.type === "rx-as-tx-presets" ? data.presets : data;
+    if (!inc || typeof inc !== "object" || Array.isArray(inc)) throw new Error("bad format");
+    const presets = loadPresets(); let n = 0;
+    for (const [name, p] of Object.entries(inc)) {
+      if (!p || !validMap(p.map)) { log(`Import: skipped invalid preset "${name}"`); continue; }
+      if (presets[name] && !confirm(`Overwrite preset "${name}"?`)) continue;
+      presets[name] = { map: p.map.map(c => ({ src: c.src, inv: !!c.inv })), padId: typeof p.padId === "string" ? p.padId : null, saved: typeof p.saved === "string" ? p.saved : new Date().toISOString() };
+      n++;
+    }
+    savePresets(presets); refreshPresets($("#presetSel").value); log(`Imported ${n} preset(s)`);
+  } catch (err) { log(`Import failed: ${err.message}`); }
+  e.target.value = "";
+};
 document.querySelectorAll("#mode button").forEach(b => b.onclick = () => setMode(b.dataset.m));
 setMode("off");
 buildChannelTable();
+refreshPresets();
 startTicker();
 requestAnimationFrame(draw);
 </script>
