@@ -140,6 +140,7 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; }
     <span id="devState" class="pill">module: –</span>
     <span id="padState" class="pill">gamepad: –</span>
     <span id="linkState" class="pill">link: –</span>
+    <span id="videoLatency" class="pill" title="Estimated browser capture-to-display delay when the video source provides a capture timestamp">video: –</span>
     <button id="connect" class="primary">Connect serial</button>
   </div>
 </header>
@@ -247,6 +248,7 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; }
       <span id="personStatus" class="muted" role="status">off</span>
     </div>
     <div class="hint">USB video receivers and capture cards show up as cameras. Chrome asks for camera permission the first time. The camera starts when the page opens, unless you last stopped it with Stop.</div>
+    <div class="hint">The video latency readout estimates capture-to-display delay when the browser provides a capture timestamp. It cannot include delay before a USB capture card timestamps the frame.</div>
     <div class="hint">Person detection runs in this browser. Open the page from http://localhost (for example, <code>python3 -m http.server</code>), then enable it. The model needs an internet connection on first use.</div>
   </div>
 
@@ -263,6 +265,7 @@ label.chk { display: inline-flex; gap: 6px; align-items: center; }
 </aside>
 
 <script src="person-detection.js"></script>
+<script src="video-latency.js"></script>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -925,6 +928,30 @@ showTab(activeTab);
 
 // ---------- camera ----------
 let camStream = null;
+let latencyFrameId = null, latencyRun = 0;
+function stopVideoLatency() {
+  latencyRun++;
+  const video = $("#cam");
+  if (latencyFrameId !== null) video.cancelVideoFrameCallback?.(latencyFrameId);
+  latencyFrameId = null;
+  setPill("#videoLatency", "video: –", "");
+}
+function startVideoLatency() {
+  stopVideoLatency();
+  const video = $("#cam");
+  if (!video.requestVideoFrameCallback) {
+    setPill("#videoLatency", "video: unavailable", "warn");
+    return;
+  }
+  const run = latencyRun;
+  const onFrame = (_now, metadata) => {
+    if (run !== latencyRun) return;
+    const ms = captureToDisplayMs(metadata);
+    setPill("#videoLatency", ms === null ? "video: unavailable" : `video: ~${ms} ms`, ms === null ? "warn" : "ok");
+    latencyFrameId = video.requestVideoFrameCallback(onFrame);
+  };
+  latencyFrameId = video.requestVideoFrameCallback(onFrame);
+}
 let personWorker = null, personReady = false, personBusy = false, personTimer = null, personRun = 0;
 const personCanvas = $("#personOverlay");
 const personCtx = personCanvas.getContext("2d");
@@ -1030,6 +1057,7 @@ async function startCam() {
   }
   const v = $("#cam");
   v.srcObject = camStream;
+  startVideoLatency();
   $("#camEmpty").hidden = true;
   Object.assign(prefs, { camId: id, camRes: $("#camRes").value, camAuto: true });
   savePrefs();
@@ -1044,6 +1072,7 @@ async function startCam() {
   startPersonDetection();
 }
 function stopCam(userAction = true) {
+  stopVideoLatency();
   clearPeople();
   $("#personStatus").textContent = $("#detectPeople").checked ? "waiting for camera" : "off";
   if (camStream) camStream.getTracks().forEach(t => t.stop());
